@@ -1,17 +1,20 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
-import { HallOfHeroes } from './schemas/hall-of-heroes.schema';
+import { RedisService } from '../redis/redis.service';
 import { Knight } from './schemas/knight.schema';
+import { HallOfHeroes } from './schemas/hall-of-heroes.schema';
 
 @Injectable()
 export class KnightService {
     constructor(
         @InjectModel('Knight') private readonly knightModel: Model<Knight>,
         @InjectModel('HallOfHeroes') private readonly hallOfHeroesModel: Model<HallOfHeroes>,
+        private readonly redisService: RedisService,
     ) {}
 
     async create(knightData): Promise<Knight> {
+        await this.redisService.deleteKey('allKnights');
         const { attack, experience } = this.calculateAttackAndExperience(knightData);
     
         const createdKnight = await this.knightModel.create({
@@ -24,25 +27,39 @@ export class KnightService {
     }
 
     async findAll(): Promise<Knight[]> {
-        return await this.knightModel.find();
+        const cachedData = await this.redisService.getValue('allKnights');
+        if (cachedData) {
+            return JSON.parse(cachedData);
+        } else {
+            const knights = await this.knightModel.find();
+            await this.redisService.setValue('allKnights', JSON.stringify(knights));
+            return knights;
+        }
     }
 
     async findOne(id: string): Promise<Knight> {
-        const knight = await this.knightModel.findById(id);
-        if (!knight) {
-        throw new NotFoundException('Knight not found');
+        const cachedData = await this.redisService.getValue(`knight:${id}`);
+        if (cachedData) {
+            return JSON.parse(cachedData);
+        } else {
+            const knight = await this.knightModel.findById(id);
+            if (!knight) {
+                throw new NotFoundException('Knight not found');
+            }
+            await this.redisService.setValue(`knight:${id}`, JSON.stringify(knight));
+            return knight;
         }
-        return knight;
     }
 
     async update(id: string, knightData): Promise<Knight> {
+
         const existingKnight = await this.knightModel.findById(id);
         if (!existingKnight) {
             throw new NotFoundException('Knight not found');
         }
 
         const updatedKnightData = {
-            ...existingKnight.toObject(),
+            ...existingKnight,
             ...knightData
         };
 
@@ -55,6 +72,8 @@ export class KnightService {
         if (!updatedKnight) {
             throw new NotFoundException('Knight not found');
         }
+        await this.redisService.deleteKey('allKnights');
+        await this.redisService.deleteKey(`knight:${id}`);
         return updatedKnight;
     }
 
@@ -63,7 +82,9 @@ export class KnightService {
         if (!deletedKnight) {
             throw new NotFoundException('Knight not found');
         }
-        await this.hallOfHeroesModel.create(deletedKnight.toJSON());
+        await this.redisService.deleteKey(`knight:${id}`);
+        await this.redisService.deleteKey('allKnights');
+        await this.hallOfHeroesModel.create(deletedKnight);
         return deletedKnight;
     }
 

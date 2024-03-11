@@ -43,6 +43,10 @@ export class KnightEntity {
 
   @UpdateDateColumn({ name: 'updated_at' })
   updatedAt: Date;
+
+  constructor(partial?: Partial<KnightEntity>) {
+    Object.assign(this, partial);
+  }
 }
 
 @Entity({ name: 'weapon' })
@@ -70,4 +74,8 @@ export class WeaponEntity {
 
   @UpdateDateColumn({ name: 'updated_at' })
   updatedAt: Date;
+
+  constructor(partial?: Partial<WeaponEntity>) {
+    Object.assign(this, partial);
+  }
 }
